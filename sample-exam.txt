@@ -1,0 +1,37 @@
+// Sample test exam file
+// Save as test-exam.txt and upload to test the system
+
+Câu 1: Thủ đô của Việt Nam là gì?
+A. TP.HCM
+B. Hà Nội
+C. Đà Nẵng
+D. Cần Thơ
+Đáp án: B
+
+Câu 2: Đất nước nào là lớn nhất thế giới?
+A. Nga
+B. Canada
+C. Mỹ
+D. Trung Quốc
+Đáp án: A
+
+Câu 3: Bao nhiêu tỉnh thành phố ở Việt Nam?
+A. 60
+B. 62
+C. 63
+D. 64
+Đáp án: C
+
+Câu 4: Ai là người sáng lập đảng Cộng Sản Việt Nam?
+A. Hồ Chí Minh
+B. Võ Nguyên Giáp
+C. Phạm Văn Đồng
+D. Trần Phú
+Đáp án: A
+
+Câu 5: Chiều dài của sông Mekong là bao nhiêu km?
+A. 2700 km
+B. 3200 km
+C. 4000 km
+D. 4350 km
+Đáp án: D

@@ -1,0 +1,88 @@
+.library-card {
+  width: 100%;
+  max-width: 900px;
+  background: white;
+  border-radius: 12px;
+  padding: 32px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.library-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.library-header h2 {
+  margin: 0;
+}
+
+.library-header p {
+  margin: 6px 0 0;
+  color: #666;
+}
+
+.library-header button,
+.exam-row button {
+  padding: 10px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #667eea;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.library-error {
+  margin-bottom: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8d7da;
+  color: #842029;
+}
+
+.empty-state {
+  padding: 28px;
+  text-align: center;
+  color: #666;
+}
+
+.exam-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.exam-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #e4e6eb;
+  border-radius: 8px;
+}
+
+.exam-row h3 {
+  margin: 0 0 5px;
+}
+
+.exam-row p {
+  margin: 0;
+  color: #666;
+}
+
+.start-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.start-controls input {
+  width: 70px;
+  padding: 9px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
