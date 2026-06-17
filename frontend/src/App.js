@@ -28,7 +28,11 @@ function App() {
   };
 
   const handleStartExam = (exam, minutes) => {
-    setExamData({ examId: exam.id, title: exam.title });
+    setExamData({
+      examId: exam.id,
+      title: exam.title,
+      passScore: exam.pass_score || exam.passScore || 80,
+    });
     setTimeLimitMinutes(minutes);
     setExamResults(null);
     setCurrentPage('exam');
@@ -93,7 +97,14 @@ function App() {
           <FileUpload onSuccess={handleFileUploadSuccess} />
         )}
         {currentPage === 'review' && examData && (
-          <ExamReview examData={examData} onSaved={handleReviewSaved} />
+          <ExamReview
+            examData={examData}
+            onSaved={handleReviewSaved}
+            onCancel={() => {
+              setExamData(null);
+              setCurrentPage('library');
+            }}
+          />
         )}
         {currentPage === 'exam' && examData && (
           <ExamTaker

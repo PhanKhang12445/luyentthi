@@ -35,8 +35,9 @@ const sanitizeSvg = (value) => {
 
 const normalizeGeminiQuestion = (question, index) => {
   const diagramSvg = sanitizeSvg(question.diagram_svg);
+  const hasDiagram = question.has_diagram === true;
   const bbox = question.diagram_bbox || null;
-  const diagramBbox = bbox &&
+  const diagramBbox = hasDiagram && bbox &&
     Number.isFinite(Number(bbox.x)) &&
     Number.isFinite(Number(bbox.y)) &&
     Number.isFinite(Number(bbox.width)) &&
@@ -53,6 +54,7 @@ const normalizeGeminiQuestion = (question, index) => {
     question_number: String(question.question_number || index + 1),
     source_index: index + 1,
     question_text: String(question.question_text || '').replace(/\s+/g, ' ').trim(),
+    has_diagram: hasDiagram,
     diagram_bbox: diagramBbox,
     diagram_svg: diagramSvg,
     options: [
@@ -92,6 +94,7 @@ const extractExamWithGemini = async (imagePath, mimeType) => {
   ]
     .filter(Boolean)
     .map((model) => model.replace(/^models\//, ''));
+  const uniqueModels = [...new Set(models)];
 
   const prompt = `
 You are extracting a Japanese technical true/false exam from a photographed page.
@@ -105,6 +108,9 @@ Rules:
 - Keep only the Japanese question sentence in question_text.
 - Remove romanized pronunciation lines such as "B no namae wa besu desu."
 - Ignore the student's name, red handwriting, calculations, check marks, and page noise unless a mark clearly indicates the answer.
+- For each question, decide has_diagram first.
+- Set has_diagram true only when the question has its own black technical diagram/symbol/drawing visibly associated with that exact question.
+- Set has_diagram false for plain text-only questions, even if other questions on the page have diagrams.
 - If a question has a diagram, return diagram_bbox with the diagram's tight bounding box in normalized image coordinates from 0 to 1000: {x,y,width,height}.
 - The bbox must tightly surround the actual visible diagram for that exact question, including labels that belong to the diagram.
 - Diagram examples include transistor symbols, circuit diagrams, capacitor/ground symbols, safety signs, and tool drawings.
@@ -113,7 +119,7 @@ Rules:
 - For symbol questions, choose the black electrical/safety/tool symbol, not the question number.
 - Do not use a generic page-position guess.
 - Do not include Japanese sentence text or romanized reading text above/below the diagram in the bbox.
-- If no diagram belongs to the question, return diagram_bbox as null.
+- If no diagram belongs to the question, return has_diagram false and diagram_bbox as null.
 - diagram_svg is optional fallback only. Prefer an empty string unless you are confident.
 - Do not create answer choices. The app creates A=true and B=false.
 - Use correct_answer "A" for true and "B" for false. If the answer is unclear, use "A".
@@ -144,6 +150,7 @@ Rules:
                 properties: {
                   question_number: { type: 'string' },
                   question_text: { type: 'string' },
+                  has_diagram: { type: 'boolean' },
                   diagram_bbox: {
                     anyOf: [
                       {
@@ -162,7 +169,7 @@ Rules:
                   diagram_svg: { type: 'string' },
                   correct_answer: { type: 'string', enum: ['A', 'B'] },
                 },
-                required: ['question_number', 'question_text', 'diagram_bbox', 'diagram_svg', 'correct_answer'],
+                required: ['question_number', 'question_text', 'has_diagram', 'diagram_bbox', 'diagram_svg', 'correct_answer'],
               },
             },
           },
@@ -173,7 +180,7 @@ Rules:
 
   let lastError;
 
-  for (const model of models) {
+  for (const model of uniqueModels) {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -188,7 +195,7 @@ Rules:
       const body = await response.text();
       lastError = new Error(`Gemini API error (${model}): ${response.status} ${body}`);
 
-      if (response.status === 429 || response.status === 404) {
+      if ([429, 404, 500, 502, 503, 504].includes(response.status)) {
         continue;
       }
 

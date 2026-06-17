@@ -32,12 +32,55 @@ const createDiagramImages = async (imagePath, questions) => {
       height: Math.ceil((bbox.height / 1000) * imageHeight),
     };
     const diagramKey = question.source_index || question.question_number;
-    const imageUrl = await cropDiagramByInkRegion(
+    const initialCrop = await cropDiagramCandidate(
       imagePath,
       diagramKey,
       region,
       'diagram'
     );
+    let imageUrl = initialCrop?.url || null;
+
+    if (looksLikeTextCrop(initialCrop)) {
+      const questionIndex = questions.indexOf(question);
+      const nextDiagramQuestion = questions
+        .slice(questionIndex + 1)
+        .find((candidate) => candidate.diagram_bbox);
+      const nextTop = nextDiagramQuestion
+        ? Math.floor((nextDiagramQuestion.diagram_bbox.y / 1000) * imageHeight)
+        : imageHeight;
+      const fallbackTop = Math.min(
+        imageHeight - 1,
+        region.top + region.height + Math.round(imageHeight * 0.012)
+      );
+      const fallbackBottom = clamp(
+        nextTop - Math.round(imageHeight * 0.012),
+        fallbackTop + 1,
+        imageHeight
+      );
+      const fallbackWidth = Math.max(region.width, Math.round(imageWidth * 0.42));
+      const fallbackCenter = region.left + Math.round(region.width / 2);
+      const fallbackLeft = clamp(
+        fallbackCenter - Math.round(fallbackWidth / 2),
+        0,
+        Math.max(0, imageWidth - fallbackWidth)
+      );
+      const fallbackRegion = {
+        left: fallbackLeft,
+        top: fallbackTop,
+        width: fallbackWidth,
+        height: fallbackBottom - fallbackTop,
+      };
+      const fallbackCrop = await cropDiagramCandidate(
+        imagePath,
+        diagramKey,
+        fallbackRegion,
+        'diagram'
+      );
+
+      if (fallbackCrop && !looksLikeTextCrop(fallbackCrop)) {
+        imageUrl = fallbackCrop.url;
+      }
+    }
 
     if (imageUrl) {
       diagramImages[diagramKey] = imageUrl;
@@ -101,7 +144,7 @@ const findInkBounds = async (imagePath, region) => {
 
   if (inkRows.length > 0) {
     let keepBottom = inkRows[inkRows.length - 1];
-    const largeGap = Math.max(34, Math.floor(info.height * 0.1));
+    const largeGap = Math.max(34, Math.min(120, Math.floor(info.height * 0.1)));
 
     for (let i = 1; i < inkRows.length; i += 1) {
       const gap = inkRows[i] - inkRows[i - 1];
@@ -115,31 +158,44 @@ const findInkBounds = async (imagePath, region) => {
     maxY = Math.min(maxY, keepBottom);
   }
 
+  const keptMaxY = maxY;
+  minX = info.width;
+  minY = info.height;
+  maxX = -1;
+
+  for (let y = 0; y <= keptMaxY; y += 1) {
+    for (let x = 0; x < info.width; x += 1) {
+      const index = (y * info.width + x) * info.channels;
+      const r = data[index];
+      const g = data[index + 1];
+      const b = data[index + 2];
+
+      if (!isDarkInk(r, g, b)) continue;
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+    }
+  }
+
+  if (maxX < minX || keptMaxY < minY) {
+    return null;
+  }
+
   return {
     left: region.left + minX,
     top: region.top + minY,
     right: region.left + maxX + 1,
-    bottom: region.top + maxY + 1,
+    bottom: region.top + keptMaxY + 1,
   };
 };
 
-const cropDiagramByInkRegion = async (imagePath, questionNumber, region, filenameSuffix) => {
+const writeCropFromBounds = async (imagePath, questionNumber, bounds, filenameSuffix) => {
   const metadata = await sharp(imagePath).metadata();
   const imageWidth = metadata.width;
   const imageHeight = metadata.height;
 
   if (!imageWidth || !imageHeight) return null;
-
-  const safeRegion = {
-    left: clamp(region.left, 0, imageWidth - 1),
-    top: clamp(region.top, 0, imageHeight - 1),
-    width: clamp(region.width, 1, imageWidth - clamp(region.left, 0, imageWidth - 1)),
-    height: clamp(region.height, 1, imageHeight - clamp(region.top, 0, imageHeight - 1)),
-  };
-
-  const bounds = await findInkBounds(imagePath, safeRegion);
-
-  if (!bounds) return null;
 
   const paddingX = 32;
   const paddingTop = 24;
@@ -165,7 +221,45 @@ const cropDiagramByInkRegion = async (imagePath, questionNumber, region, filenam
     .png()
     .toFile(outputPath);
 
-  return `/uploads/question-diagrams/${filename}`;
+  return {
+    url: `/uploads/question-diagrams/${filename}`,
+    width,
+    height,
+  };
+};
+
+const cropDiagramCandidate = async (imagePath, questionNumber, region, filenameSuffix) => {
+  const metadata = await sharp(imagePath).metadata();
+  const imageWidth = metadata.width;
+  const imageHeight = metadata.height;
+
+  if (!imageWidth || !imageHeight) return null;
+
+  const safeLeft = clamp(region.left, 0, imageWidth - 1);
+  const safeTop = clamp(region.top, 0, imageHeight - 1);
+  const safeRegion = {
+    left: safeLeft,
+    top: safeTop,
+    width: clamp(region.width, 1, imageWidth - safeLeft),
+    height: clamp(region.height, 1, imageHeight - safeTop),
+  };
+
+  const bounds = await findInkBounds(imagePath, safeRegion);
+
+  if (!bounds) return null;
+
+  return writeCropFromBounds(imagePath, questionNumber, bounds, filenameSuffix);
+};
+
+const cropDiagramByInkRegion = async (imagePath, questionNumber, region, filenameSuffix) => {
+  const crop = await cropDiagramCandidate(imagePath, questionNumber, region, filenameSuffix);
+  return crop?.url || null;
+};
+
+const looksLikeTextCrop = (crop) => {
+  if (!crop) return true;
+
+  return crop.width / crop.height > 2.2;
 };
 
 const createDiagramImagesFromQuestionRegions = async (imagePath) => {

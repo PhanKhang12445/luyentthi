@@ -4,10 +4,15 @@ const path = require('path');
 const {
   createExamFromFile,
   createExamsFromFiles,
+  cropQuestionDiagram,
+  deleteExam,
   getExam,
+  listExamHistory,
   listExams,
+  removeQuestionDiagram,
   submitExam,
   updateAnswerKey,
+  updateExamPassScore,
 } = require('../controllers/examController');
 const { requireAuth } = require('../middleware/auth');
 
@@ -52,8 +57,13 @@ router.use(requireAuth);
 router.post('/create', upload.single('file'), createExamFromFile);
 router.post('/create-batch', upload.array('files', 10), createExamsFromFiles);
 router.get('/', listExams);
+router.post('/:examId/questions/:questionId/diagram-crop', cropQuestionDiagram);
+router.delete('/:examId/questions/:questionId/diagram', removeQuestionDiagram);
+router.get('/:examId/history', listExamHistory);
 router.get('/:examId', getExam);
 router.put('/:examId/answers', updateAnswerKey);
+router.put('/:examId/pass-score', updateExamPassScore);
+router.delete('/:examId', deleteExam);
 router.post('/submit', submitExam);
 
 module.exports = router;

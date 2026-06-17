@@ -2,6 +2,17 @@ import React, { useState, useEffect } from 'react';
 import apiClient from '../services/api';
 import './ExamTaker.css';
 
+const shuffleQuestions = (questions) => {
+  const output = [...questions];
+
+  for (let index = output.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [output[index], output[randomIndex]] = [output[randomIndex], output[index]];
+  }
+
+  return output;
+};
+
 function ExamTaker({ examData, timeLimitMinutes = 30, onSubmit }) {
   const [questions, setQuestions] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -14,7 +25,9 @@ function ExamTaker({ examData, timeLimitMinutes = 30, onSubmit }) {
     const fetchExam = async () => {
       try {
         const response = await apiClient.get(`/exams/${examData.examId}`);
-        setQuestions(response.data.questions);
+        setQuestions(shuffleQuestions(response.data.questions));
+        setCurrentQuestion(0);
+        setAnswers({});
         setLoading(false);
       } catch (err) {
         setError('Failed to load exam questions');
@@ -23,7 +36,7 @@ function ExamTaker({ examData, timeLimitMinutes = 30, onSubmit }) {
     };
 
     fetchExam();
-  }, [examData]);
+  }, [examData.examId]);
 
   useEffect(() => {
     setRemainingSeconds(timeLimitMinutes * 60);
@@ -34,6 +47,12 @@ function ExamTaker({ examData, timeLimitMinutes = 30, onSubmit }) {
       ...answers,
       [questionId]: optionId,
     });
+
+    if (currentQuestion < questions.length - 1) {
+      setTimeout(() => {
+        setCurrentQuestion((index) => Math.min(index + 1, questions.length - 1));
+      }, 250);
+    }
   };
 
   const handleNext = () => {
@@ -49,14 +68,15 @@ function ExamTaker({ examData, timeLimitMinutes = 30, onSubmit }) {
   };
 
   const handleSubmit = async () => {
-    const answerArray = Object.entries(answers).map(([questionId, optionId]) => ({
-      questionId,
-      selectedOptionId: optionId,
+    const answerArray = questions.map((question) => ({
+      questionId: question.id,
+      selectedOptionId: answers[question.id] || null,
     }));
 
     try {
       const response = await apiClient.post('/exams/submit', {
         examId: examData.examId,
+        passScore: examData.passScore,
         answers: answerArray,
       });
       onSubmit(response.data);
@@ -109,7 +129,7 @@ function ExamTaker({ examData, timeLimitMinutes = 30, onSubmit }) {
         <div className="exam-header">
           <h2>{examData.title}</h2>
           <span className="question-counter">
-            Question {question.questionNumber || currentQuestion + 1} of {questions.length}
+            Question {currentQuestion + 1} of {questions.length}
           </span>
           <span className="timer-badge">
             {minutes}:{seconds}
@@ -121,7 +141,7 @@ function ExamTaker({ examData, timeLimitMinutes = 30, onSubmit }) {
         </div>
 
         <div className="question-content">
-          <h3>{question.text}</h3>
+          <h3>{currentQuestion + 1}. {question.text}</h3>
           {diagramSrc && (
             <div className="diagram-panel">
               <img src={diagramSrc} alt="" />

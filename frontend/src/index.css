@@ -15,3 +15,38 @@ code {
 * {
   box-sizing: border-box;
 }
+
+button {
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease,
+    transform 0.18s ease;
+}
+
+button:not(:disabled) {
+  filter: brightness(0.9);
+}
+
+button:not(:disabled):hover {
+  filter: brightness(1.04);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(27, 31, 35, 0.16);
+}
+
+button:not(:disabled):active {
+  filter: brightness(0.98);
+  transform: translateY(0);
+  box-shadow: 0 3px 8px rgba(27, 31, 35, 0.14);
+}
+
+button:focus-visible {
+  outline: 3px solid rgba(102, 126, 234, 0.35);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  box-shadow: none;
+}

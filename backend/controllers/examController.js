@@ -1,4 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+const path = require('path');
+const sharp = require('sharp');
 const pool = require('../config/database');
 const { parseExamText, validateQuestion } = require('../utils/parser');
 const { extractTextFromImage } = require('../utils/ocr');
@@ -10,10 +13,19 @@ const {
 
 const ensureQuestionColumns = async () => {
   await pool.query("ALTER TABLE exam ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'draft'");
+  await pool.query('ALTER TABLE exam ADD COLUMN IF NOT EXISTS pass_score INTEGER DEFAULT 80');
+  await pool.query('UPDATE exam SET pass_score = 80 WHERE pass_score IS NULL');
   await pool.query('ALTER TABLE question ADD COLUMN IF NOT EXISTS question_number INTEGER');
   await pool.query('ALTER TABLE question ADD COLUMN IF NOT EXISTS image_path TEXT');
+  await pool.query('ALTER TABLE question ADD COLUMN IF NOT EXISTS source_image_path TEXT');
   await pool.query('ALTER TABLE question ADD COLUMN IF NOT EXISTS diagram_image_path TEXT');
   await pool.query('ALTER TABLE question ADD COLUMN IF NOT EXISTS diagram_svg TEXT');
+  await pool.query('ALTER TABLE exam_history ADD COLUMN IF NOT EXISTS details JSONB');
+};
+
+const toQuestionNumber = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
 /**
@@ -31,6 +43,7 @@ const extractQuestionsFromFile = async (file) => {
 
   if (fileResult.isImage) {
     imagePath = fileResult.path;
+    const shouldRequireAiExtraction = Boolean(process.env.GEMINI_API_KEY);
 
     try {
       const geminiQuestions = await extractExamWithGemini(fileResult.path, file.mimetype);
@@ -40,7 +53,15 @@ const extractQuestionsFromFile = async (file) => {
         usedGemini = true;
       }
     } catch (geminiError) {
-      console.warn('Gemini extraction failed, falling back to OCR:', geminiError.message);
+      console.warn('Gemini extraction failed:', geminiError.message);
+
+      if (shouldRequireAiExtraction) {
+        throw new Error('AI extraction is temporarily unavailable. Please try uploading again in a moment.');
+      }
+    }
+
+    if (!usedGemini && shouldRequireAiExtraction) {
+      throw new Error('AI could not extract valid questions from this image. Please retry or use a clearer image.');
     }
 
     if (!usedGemini) {
@@ -64,6 +85,7 @@ const extractQuestionsFromFile = async (file) => {
     questions,
     questionImages,
     diagramImages,
+    sourceImagePath: imagePath ? `/uploads/${path.basename(imagePath)}` : null,
     source: usedGemini ? 'gemini' : 'ocr',
   };
 };
@@ -81,7 +103,7 @@ const createExamRecord = async ({ title, userId, extractedFiles }) => {
     extractedFile.questions.forEach((question, questionIndex) => {
       totalQuestions += 1;
       const originalNumber = String(question.question_number || questionIndex + 1);
-      const questionNumber = String(totalQuestions);
+      const questionNumber = String(toQuestionNumber(originalNumber, totalQuestions));
       const sourceIndex = String(questionIndex + 1);
 
       questions.push({
@@ -89,6 +111,7 @@ const createExamRecord = async ({ title, userId, extractedFiles }) => {
         question_number: questionNumber,
         source_index: sourceIndex,
         original_question_number: originalNumber,
+        source_image_path: extractedFile.sourceImagePath,
       });
 
       if (extractedFile.questionImages[originalNumber]) {
@@ -103,6 +126,11 @@ const createExamRecord = async ({ title, userId, extractedFiles }) => {
     });
   }
 
+  questions.sort((a, b) => (
+    toQuestionNumber(a.question_number, Number.MAX_SAFE_INTEGER) -
+    toQuestionNumber(b.question_number, Number.MAX_SAFE_INTEGER)
+  ));
+
   if (questions.length === 0) {
     throw new Error('No valid questions found in selected file(s)');
   }
@@ -113,19 +141,20 @@ const createExamRecord = async ({ title, userId, extractedFiles }) => {
   await ensureQuestionColumns();
 
   await pool.query(
-    'INSERT INTO exam (id, title, created_by, status, created_at) VALUES ($1, $2, $3, $4, $5)',
-    [examId, title, userId, 'draft', now]
+    'INSERT INTO exam (id, title, created_by, status, pass_score, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+    [examId, title, userId, 'draft', 80, now]
   );
 
   for (const q of questions) {
     const questionId = uuidv4();
     await pool.query(
-      'INSERT INTO question (id, exam_id, question_number, question_text, image_path, diagram_image_path, diagram_svg) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      'INSERT INTO question (id, exam_id, question_number, question_text, source_image_path, image_path, diagram_image_path, diagram_svg) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
       [
         questionId,
         examId,
         Number.parseInt(q.question_number, 10) || null,
         q.question_text,
+        q.source_image_path || null,
         questionImages[q.question_number] || null,
         diagramImages[q.question_number] || null,
         q.diagram_svg || null,
@@ -223,7 +252,7 @@ const listExams = async (req, res) => {
     await ensureQuestionColumns();
 
     const result = await pool.query(
-      `SELECT e.id, e.title, e.created_by, e.status, e.created_at, COUNT(q.id)::int AS question_count
+      `SELECT e.id, e.title, e.created_by, e.status, e.pass_score, e.created_at, COUNT(q.id)::int AS question_count
        FROM exam e
        LEFT JOIN question q ON q.exam_id = e.id
        WHERE e.created_by = $1
@@ -235,6 +264,26 @@ const listExams = async (req, res) => {
     res.json({ exams: result.rows });
   } catch (error) {
     console.error('Error listing exams:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const deleteExam = async (req, res) => {
+  const { examId } = req.params;
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM exam WHERE id = $1 AND created_by = $2 RETURNING id',
+      [examId, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Exam not found' });
+    }
+
+    res.json({ deleted: true, examId });
+  } catch (error) {
+    console.error('Error deleting exam:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -251,7 +300,7 @@ const updateAnswerKey = async (req, res) => {
     await ensureQuestionColumns();
 
     const examResult = await pool.query(
-      'SELECT id FROM exam WHERE id = $1 AND created_by = $2',
+      'SELECT id, pass_score FROM exam WHERE id = $1 AND created_by = $2',
       [examId, req.user.id]
     );
 
@@ -271,6 +320,33 @@ const updateAnswerKey = async (req, res) => {
     res.json({ examId, status: 'ready', message: 'Answer key saved' });
   } catch (error) {
     console.error('Error updating answer key:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const updateExamPassScore = async (req, res) => {
+  const { examId } = req.params;
+  const passScore = Number.parseInt(req.body?.passScore, 10);
+
+  if (!Number.isFinite(passScore) || passScore < 1 || passScore > 100) {
+    return res.status(400).json({ error: 'Pass score must be between 1 and 100' });
+  }
+
+  try {
+    await ensureQuestionColumns();
+
+    const result = await pool.query(
+      'UPDATE exam SET pass_score = $1 WHERE id = $2 AND created_by = $3 RETURNING id, pass_score',
+      [passScore, examId, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Exam not found' });
+    }
+
+    res.json({ examId, passScore: result.rows[0].pass_score });
+  } catch (error) {
+    console.error('Error updating pass score:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -322,6 +398,7 @@ const getExam = async (req, res) => {
         diagramImageUrl: q.diagram_image_path,
         diagramSvg: q.diagram_svg,
         imageUrl: q.image_path,
+        sourceImageUrl: q.source_image_path,
         options: optionsResult.rows,
         correctOptionId: optionsResult.rows.find((option) => option.is_correct)?.id || null,
       });
@@ -332,6 +409,7 @@ const getExam = async (req, res) => {
         id: exam.id,
         title: exam.title,
         createdBy: exam.created_by,
+        passScore: exam.pass_score || 80,
         createdAt: exam.created_at
       },
       questions
@@ -342,11 +420,150 @@ const getExam = async (req, res) => {
   }
 };
 
+const listExamHistory = async (req, res) => {
+  const { examId } = req.params;
+
+  try {
+    const examResult = await pool.query(
+      'SELECT id FROM exam WHERE id = $1 AND created_by = $2',
+      [examId, req.user.id]
+    );
+
+    if (examResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Exam not found' });
+    }
+
+    await ensureQuestionColumns();
+
+    const result = await pool.query(
+      `SELECT id, score, final_grade, details, submitted_at
+       FROM exam_history
+       WHERE exam_id = $1
+       ORDER BY submitted_at DESC`,
+      [examId]
+    );
+
+    res.json({ history: result.rows });
+  } catch (error) {
+    console.error('Error listing exam history:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const resolveUploadPath = (uploadUrl) => {
+  if (!uploadUrl || !uploadUrl.startsWith('/uploads/')) {
+    return null;
+  }
+
+  return path.join(__dirname, '..', uploadUrl.replace('/uploads/', 'uploads/'));
+};
+
+const cropQuestionDiagram = async (req, res) => {
+  const { examId, questionId } = req.params;
+  const crop = req.body?.crop || {};
+  const left = Math.round(Number(crop.left));
+  const top = Math.round(Number(crop.top));
+  const width = Math.round(Number(crop.width));
+  const height = Math.round(Number(crop.height));
+
+  if (![left, top, width, height].every(Number.isFinite) || width < 20 || height < 20) {
+    return res.status(400).json({ error: 'A valid crop region is required' });
+  }
+
+  try {
+    await ensureQuestionColumns();
+
+    const result = await pool.query(
+      `SELECT q.id, q.question_number, q.source_image_path
+       FROM question q
+       JOIN exam e ON e.id = q.exam_id
+       WHERE q.id = $1 AND q.exam_id = $2 AND e.created_by = $3`,
+      [questionId, examId, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    const question = result.rows[0];
+    const sourcePath = resolveUploadPath(question.source_image_path);
+
+    if (!sourcePath || !fs.existsSync(sourcePath)) {
+      return res.status(400).json({ error: 'Original image is not available for this question' });
+    }
+
+    const metadata = await sharp(sourcePath).metadata();
+    const imageWidth = metadata.width;
+    const imageHeight = metadata.height;
+
+    if (!imageWidth || !imageHeight) {
+      return res.status(400).json({ error: 'Original image cannot be read' });
+    }
+
+    const safeLeft = Math.min(Math.max(left, 0), imageWidth - 1);
+    const safeTop = Math.min(Math.max(top, 0), imageHeight - 1);
+    const safeWidth = Math.min(Math.max(width, 1), imageWidth - safeLeft);
+    const safeHeight = Math.min(Math.max(height, 1), imageHeight - safeTop);
+    const outputDir = path.join(path.dirname(sourcePath), 'question-diagrams');
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    const prefix = path.basename(sourcePath, path.extname(sourcePath));
+    const filename = `${prefix}-manual-q${question.question_number}-${Date.now()}.png`;
+    const outputPath = path.join(outputDir, filename);
+
+    await sharp(sourcePath)
+      .extract({ left: safeLeft, top: safeTop, width: safeWidth, height: safeHeight })
+      .png()
+      .toFile(outputPath);
+
+    const imageUrl = `/uploads/question-diagrams/${filename}`;
+    await pool.query('UPDATE question SET diagram_image_path = $1, diagram_svg = NULL WHERE id = $2', [
+      imageUrl,
+      questionId,
+    ]);
+
+    res.json({ diagramImageUrl: imageUrl });
+  } catch (error) {
+    console.error('Error cropping diagram:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const removeQuestionDiagram = async (req, res) => {
+  const { examId, questionId } = req.params;
+
+  try {
+    await ensureQuestionColumns();
+
+    const result = await pool.query(
+      `UPDATE question q
+       SET diagram_image_path = NULL, diagram_svg = NULL
+       FROM exam e
+       WHERE q.exam_id = e.id
+         AND q.id = $1
+         AND q.exam_id = $2
+         AND e.created_by = $3
+       RETURNING q.id`,
+      [questionId, examId, req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    res.json({ diagramImageUrl: null });
+  } catch (error) {
+    console.error('Error removing diagram:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 /**
  * Submit exam answers and grade
  */
 const submitExam = async (req, res) => {
   const { examId, answers } = req.body;
+  const requestedPassScore = Number.parseInt(req.body?.passScore, 10);
   
   if (!examId || !answers) {
     return res.status(400).json({ error: 'Exam ID and answers are required' });
@@ -362,42 +579,95 @@ const submitExam = async (req, res) => {
       return res.status(404).json({ error: 'Exam not found' });
     }
 
-    let correctCount = 0;
-    const results = [];
-    
-    for (const answer of answers) {
-      const { questionId, selectedOptionId } = answer;
-      
-      // Check if selected option is correct
-      const optionResult = await pool.query(
-        'SELECT is_correct FROM answer_option WHERE id = $1',
-        [selectedOptionId]
-      );
-      
-      if (optionResult.rows.length === 0) {
-        continue;
+    await ensureQuestionColumns();
+
+    const submittedAnswers = new Map(
+      answers.map((answer) => [answer.questionId, answer.selectedOptionId])
+    );
+    const questionIds = answers.map((answer) => answer.questionId);
+    const questionsResult = await pool.query(
+      `SELECT
+         q.id,
+         q.question_number,
+         q.question_text,
+         q.diagram_image_path,
+         q.diagram_svg,
+         ao.id AS option_id,
+         ao.option_text,
+         ao.is_correct
+       FROM question q
+       JOIN answer_option ao ON ao.question_id = q.id
+       WHERE q.exam_id = $1 AND q.id = ANY($2::uuid[])
+       ORDER BY q.question_number NULLS LAST, q.created_at, q.id, ao.created_at, ao.id`,
+      [examId, questionIds]
+    );
+
+    const questionMap = new Map();
+
+    for (const row of questionsResult.rows) {
+      if (!questionMap.has(row.id)) {
+        questionMap.set(row.id, {
+          questionId: row.id,
+          questionNumber: row.question_number,
+          questionText: row.question_text,
+          diagramImageUrl: row.diagram_image_path,
+          diagramSvg: row.diagram_svg,
+          selectedOptionId: submittedAnswers.get(row.id) || null,
+          selectedOptionText: null,
+          correctOptionId: null,
+          correctOptionText: null,
+          isCorrect: false,
+          options: [],
+        });
       }
-      
-      const isCorrect = optionResult.rows[0].is_correct;
-      if (isCorrect) correctCount++;
-      
-      results.push({
-        questionId,
-        selectedOptionId,
-        isCorrect
+
+      const detail = questionMap.get(row.id);
+      detail.options.push({
+        id: row.option_id,
+        text: row.option_text,
+        isCorrect: row.is_correct,
       });
+
+      if (row.option_id === detail.selectedOptionId) {
+        detail.selectedOptionText = row.option_text;
+      }
+
+      if (row.is_correct) {
+        detail.correctOptionId = row.option_id;
+        detail.correctOptionText = row.option_text;
+      }
     }
-    
-    const totalQuestions = answers.length;
-    const score = Math.round((correctCount / totalQuestions) * 100);
+
+    const results = answers
+      .map((answer) => questionMap.get(answer.questionId))
+      .filter(Boolean)
+      .map((detail) => ({
+        ...detail,
+        isCorrect: detail.selectedOptionId === detail.correctOptionId,
+      }));
+
+    const correctCount = results.filter((result) => result.isCorrect).length;
+    const totalQuestions = results.length;
+    const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+    const passScore = Number.isFinite(requestedPassScore) && requestedPassScore >= 1 && requestedPassScore <= 100
+      ? requestedPassScore
+      : examResult.rows[0].pass_score || 80;
+    const grade = score >= passScore ? 'PASS' : 'FAIL';
+
+    if (passScore !== examResult.rows[0].pass_score) {
+      await pool.query(
+        'UPDATE exam SET pass_score = $1 WHERE id = $2 AND created_by = $3',
+        [passScore, examId, req.user.id]
+      );
+    }
     
     // Save exam history
     const historyId = uuidv4();
     const now = new Date();
     
     await pool.query(
-      'INSERT INTO exam_history (id, exam_id, score, final_grade, submitted_at) VALUES ($1, $2, $3, $4, $5)',
-      [historyId, examId, score, score >= 70 ? 'PASS' : 'FAIL', now]
+      'INSERT INTO exam_history (id, exam_id, score, final_grade, details, submitted_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [historyId, examId, score, grade, JSON.stringify(results), now]
     );
     
     res.json({
@@ -405,7 +675,8 @@ const submitExam = async (req, res) => {
       score,
       correctCount,
       totalQuestions,
-      grade: score >= 70 ? 'PASS' : 'FAIL',
+      passScore,
+      grade,
       results
     });
   } catch (error) {
@@ -417,8 +688,13 @@ const submitExam = async (req, res) => {
 module.exports = {
   createExamFromFile,
   createExamsFromFiles,
+  cropQuestionDiagram,
+  deleteExam,
+  removeQuestionDiagram,
   listExams,
+  listExamHistory,
   getExam,
   updateAnswerKey,
+  updateExamPassScore,
   submitExam,
 };

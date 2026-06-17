@@ -31,6 +31,7 @@ CREATE TABLE exam (
   title VARCHAR(255) NOT NULL,
   created_by VARCHAR(255),
   status VARCHAR(20) DEFAULT 'draft',
+  pass_score INTEGER DEFAULT 80,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -40,6 +41,7 @@ CREATE TABLE question (
   exam_id UUID NOT NULL REFERENCES exam(id) ON DELETE CASCADE,
   question_number INTEGER,
   question_text TEXT NOT NULL,
+  source_image_path TEXT,
   image_path TEXT,
   diagram_image_path TEXT,
   diagram_svg TEXT,
@@ -61,6 +63,7 @@ CREATE TABLE exam_history (
   exam_id UUID NOT NULL REFERENCES exam(id) ON DELETE CASCADE,
   score DECIMAL(5, 2) NOT NULL,
   final_grade VARCHAR(50),
+  details JSONB,
   submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
