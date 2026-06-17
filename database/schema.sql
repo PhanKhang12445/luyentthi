@@ -1,15 +1,9 @@
 -- Exam Preparation Database Schema
 -- PostgreSQL
 
--- Drop existing tables if they exist
-DROP TABLE IF EXISTS auth_session CASCADE;
-DROP TABLE IF EXISTS app_user CASCADE;
-DROP TABLE IF EXISTS exam_history CASCADE;
-DROP TABLE IF EXISTS answer_option CASCADE;
-DROP TABLE IF EXISTS question CASCADE;
-DROP TABLE IF EXISTS exam CASCADE;
+-- Create tables only if they do not already exist. This preserves registered users and existing data.
 
-CREATE TABLE app_user (
+CREATE TABLE IF NOT EXISTS app_user (
   id UUID PRIMARY KEY,
   email VARCHAR(255) UNIQUE NOT NULL,
   display_name VARCHAR(255) NOT NULL,
@@ -17,7 +11,7 @@ CREATE TABLE app_user (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE auth_session (
+CREATE TABLE IF NOT EXISTS auth_session (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
   token_hash TEXT UNIQUE NOT NULL,
@@ -26,7 +20,7 @@ CREATE TABLE auth_session (
 );
 
 -- Exam table
-CREATE TABLE exam (
+CREATE TABLE IF NOT EXISTS exam (
   id UUID PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   created_by VARCHAR(255),
@@ -36,7 +30,7 @@ CREATE TABLE exam (
 );
 
 -- Question table
-CREATE TABLE question (
+CREATE TABLE IF NOT EXISTS question (
   id UUID PRIMARY KEY,
   exam_id UUID NOT NULL REFERENCES exam(id) ON DELETE CASCADE,
   question_number INTEGER,
@@ -49,7 +43,7 @@ CREATE TABLE question (
 );
 
 -- Answer Option table
-CREATE TABLE answer_option (
+CREATE TABLE IF NOT EXISTS answer_option (
   id UUID PRIMARY KEY,
   question_id UUID NOT NULL REFERENCES question(id) ON DELETE CASCADE,
   option_text TEXT NOT NULL,
@@ -58,7 +52,7 @@ CREATE TABLE answer_option (
 );
 
 -- Exam History table (for tracking user performance)
-CREATE TABLE exam_history (
+CREATE TABLE IF NOT EXISTS exam_history (
   id UUID PRIMARY KEY,
   exam_id UUID NOT NULL REFERENCES exam(id) ON DELETE CASCADE,
   score DECIMAL(5, 2) NOT NULL,
@@ -68,9 +62,9 @@ CREATE TABLE exam_history (
 );
 
 -- Indexes for faster queries
-CREATE INDEX idx_question_exam_id ON question(exam_id);
-CREATE INDEX idx_answer_option_question_id ON answer_option(question_id);
-CREATE INDEX idx_exam_history_exam_id ON exam_history(exam_id);
-CREATE INDEX idx_exam_created_at ON exam(created_at);
-CREATE INDEX idx_auth_session_token_hash ON auth_session(token_hash);
-CREATE INDEX idx_exam_created_by ON exam(created_by);
+CREATE INDEX IF NOT EXISTS idx_question_exam_id ON question(exam_id);
+CREATE INDEX IF NOT EXISTS idx_answer_option_question_id ON answer_option(question_id);
+CREATE INDEX IF NOT EXISTS idx_exam_history_exam_id ON exam_history(exam_id);
+CREATE INDEX IF NOT EXISTS idx_exam_created_at ON exam(created_at);
+CREATE INDEX IF NOT EXISTS idx_auth_session_token_hash ON auth_session(token_hash);
+CREATE INDEX IF NOT EXISTS idx_exam_created_by ON exam(created_by);

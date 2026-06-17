@@ -7,6 +7,7 @@ require('dotenv').config();
 
 const examRoutes = require('./routes/exams');
 const authRoutes = require('./routes/auth');
+const runMigrations = require('./database/migrate');
 
 const app = express();
 
@@ -18,7 +19,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!require('fs').existsSync(uploadsDir)) {
-  require('fs').mkdirSync(uploadsDir);
+  require('fs').mkdirSync(uploadsDir, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsDir));
 
@@ -40,6 +41,16 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+
+const startServer = async () => {
+  await runMigrations();
+
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+};
+
+startServer().catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });

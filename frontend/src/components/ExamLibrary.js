@@ -43,6 +43,38 @@ function ExamLibrary({ onUpload, onReview, onStart }) {
     }
   };
 
+  const handleDeleteHistoryAttempt = async (exam, attemptId) => {
+    const confirmed = window.confirm('Delete this exam attempt history?');
+
+    if (!confirmed) return;
+
+    try {
+      await apiClient.delete(`/exams/${exam.id}/history/${attemptId}`);
+      setHistoryByExam((current) => ({
+        ...current,
+        [exam.id]: (current[exam.id] || []).filter((attempt) => attempt.id !== attemptId),
+      }));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to delete exam history');
+    }
+  };
+
+  const handleClearHistory = async (exam) => {
+    const confirmed = window.confirm(`Delete all history for "${exam.title}"?`);
+
+    if (!confirmed) return;
+
+    try {
+      await apiClient.delete(`/exams/${exam.id}/history`);
+      setHistoryByExam((current) => ({
+        ...current,
+        [exam.id]: [],
+      }));
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to clear exam history');
+    }
+  };
+
   const getExamMinutes = (examId) => {
     const value = Number(timeByExam[examId]);
 
@@ -181,29 +213,49 @@ function ExamLibrary({ onUpload, onReview, onStart }) {
                     {history.length === 0 ? (
                       <p className="history-empty">No attempts yet.</p>
                     ) : (
-                      history.map((attempt) => (
-                        <details key={attempt.id} className="history-attempt">
-                          <summary>
-                            <span>{new Date(attempt.submitted_at).toLocaleString()}</span>
-                            <b>{Number(attempt.score)}% - {attempt.final_grade}</b>
-                          </summary>
-                          <div className="history-details">
-                            {(attempt.details || []).map((item, index) => (
-                              <div
-                                key={item.questionId || index}
-                                className={`history-question ${item.isCorrect ? 'correct' : 'wrong'}`}
-                              >
-                                <div className="history-question-head">
-                                  <strong>{index + 1}. {item.questionText}</strong>
-                                  <span>{item.isCorrect ? 'Correct' : 'Wrong'}</span>
-                                </div>
-                                <p>Your answer: {item.selectedOptionText || 'No answer'}</p>
-                                <p>Correct answer: {item.correctOptionText || '-'}</p>
+                      <>
+                        <div className="history-panel-actions">
+                          <button
+                            type="button"
+                            className="clear-history-btn"
+                            onClick={() => handleClearHistory(exam)}
+                          >
+                            Clear history
+                          </button>
+                        </div>
+                        {history.map((attempt) => (
+                          <details key={attempt.id} className="history-attempt">
+                            <summary>
+                              <span>{new Date(attempt.submitted_at).toLocaleString()}</span>
+                              <b>{Number(attempt.score)}% - {attempt.final_grade}</b>
+                            </summary>
+                            <div className="history-details">
+                              <div className="history-attempt-actions">
+                                <button
+                                  type="button"
+                                  className="delete-history-btn"
+                                  onClick={() => handleDeleteHistoryAttempt(exam, attempt.id)}
+                                >
+                                  Delete attempt
+                                </button>
                               </div>
-                            ))}
-                          </div>
-                        </details>
-                      ))
+                              {(attempt.details || []).map((item, index) => (
+                                <div
+                                  key={item.questionId || index}
+                                  className={`history-question ${item.isCorrect ? 'correct' : 'wrong'}`}
+                                >
+                                  <div className="history-question-head">
+                                    <strong>{index + 1}. {item.questionText}</strong>
+                                    <span>{item.isCorrect ? 'Correct' : 'Wrong'}</span>
+                                  </div>
+                                  <p>Your answer: {item.selectedOptionText || 'No answer'}</p>
+                                  <p>Correct answer: {item.correctOptionText || '-'}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        ))}
+                      </>
                     )}
                   </div>
                 )}

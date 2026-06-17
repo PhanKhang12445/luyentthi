@@ -450,6 +450,46 @@ const listExamHistory = async (req, res) => {
   }
 };
 
+const deleteExamHistory = async (req, res) => {
+  const { examId, historyId } = req.params;
+
+  try {
+    const examResult = await pool.query(
+      'SELECT id FROM exam WHERE id = $1 AND created_by = $2',
+      [examId, req.user.id]
+    );
+
+    if (examResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Exam not found' });
+    }
+
+    await ensureQuestionColumns();
+
+    if (historyId) {
+      const result = await pool.query(
+        'DELETE FROM exam_history WHERE id = $1 AND exam_id = $2 RETURNING id',
+        [historyId, examId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Exam history not found' });
+      }
+
+      return res.json({ deleted: true, historyId });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM exam_history WHERE exam_id = $1 RETURNING id',
+      [examId]
+    );
+
+    res.json({ deleted: true, deletedCount: result.rowCount });
+  } catch (error) {
+    console.error('Error deleting exam history:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const resolveUploadPath = (uploadUrl) => {
   if (!uploadUrl || !uploadUrl.startsWith('/uploads/')) {
     return null;
@@ -690,6 +730,7 @@ module.exports = {
   createExamsFromFiles,
   cropQuestionDiagram,
   deleteExam,
+  deleteExamHistory,
   removeQuestionDiagram,
   listExams,
   listExamHistory,

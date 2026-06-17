@@ -6,6 +6,7 @@ const {
   createExamsFromFiles,
   cropQuestionDiagram,
   deleteExam,
+  deleteExamHistory,
   getExam,
   listExamHistory,
   listExams,
@@ -60,6 +61,8 @@ router.get('/', listExams);
 router.post('/:examId/questions/:questionId/diagram-crop', cropQuestionDiagram);
 router.delete('/:examId/questions/:questionId/diagram', removeQuestionDiagram);
 router.get('/:examId/history', listExamHistory);
+router.delete('/:examId/history', deleteExamHistory);
+router.delete('/:examId/history/:historyId', deleteExamHistory);
 router.get('/:examId', getExam);
 router.put('/:examId/answers', updateAnswerKey);
 router.put('/:examId/pass-score', updateExamPassScore);

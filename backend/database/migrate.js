@@ -3,6 +3,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
+const { getPoolConfig, hasDatabaseUrl } = require('../config/dbConfig');
 
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
@@ -37,14 +38,26 @@ const runMigrations = async () => {
   try {
     console.log('Running database migrations...');
 
-    await ensureDatabase();
+    if (!hasDatabaseUrl) {
+      await ensureDatabase();
+    }
 
-    const pool = new Pool({
+    const pool = new Pool(hasDatabaseUrl ? getPoolConfig() : {
       ...dbConfig,
       database,
     });
 
-    const schemaPath = path.join(__dirname, '..', '..', 'database', 'schema.sql');
+    const candidatePaths = [
+      path.join(__dirname, '..', '..', 'database', 'schema.sql'),
+      path.join(__dirname, 'schema.sql'),
+      path.join(__dirname, '..', 'schema.sql'),
+    ];
+
+    const schemaPath = candidatePaths.find(fs.existsSync);
+    if (!schemaPath) {
+      throw new Error(`Database schema file not found. Tried: ${candidatePaths.join(', ')}`);
+    }
+
     const schema = fs.readFileSync(schemaPath, 'utf-8');
 
     await pool.query(schema);

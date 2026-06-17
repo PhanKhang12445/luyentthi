@@ -1,348 +1,229 @@
-# 📋 Hướng Dẫn Deploy Lần Đầu Tiên
+# Deploy mien phi bang Render + Supabase
 
-## 🎯 Tổng Quan
-Deploy ứng dụng **Exam Preparation** (React + Node.js + PostgreSQL) lên server sử dụng **Docker Compose**.
+Huong dan nay danh cho lan deploy dau tien, khong can VPS va khong can domain rieng.
 
----
+Ban se dung:
+- GitHub: luu source code
+- Supabase Free: PostgreSQL database
+- Render Free: backend Node.js va frontend React static site
 
-## 📋 Yêu Cầu Tiên Quyết
+Ket qua sau deploy:
+- Backend co URL dang `https://ten-backend.onrender.com`
+- Frontend co URL dang `https://ten-frontend.onrender.com`
+- Nguoi dung truy cap frontend URL de dung app
 
-### Trên Server (Linux/Ubuntu)
-```bash
-# 1. Cài Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+Luu y quan trong:
+- Render Free Web Service co the sleep khi khong co traffic, lan truy cap dau co the cham.
+- Upload file/anh dang luu tren filesystem cua backend. Tren free hosting, file upload co the khong ben vung sau deploy/restart. Database van nam tren Supabase.
+- Supabase Free co gioi han dung luong. Phu hop de hoc, demo, test voi so nguoi dung nho.
 
-# 2. Cài Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+## 1. Dua code len GitHub
 
-# 3. Kiểm tra cài đặt
-docker --version
-docker-compose --version
-```
+1. Vao https://github.com
+2. Tao repository moi, vi du `exam-preparation-app`
+3. Day code len repository do
 
----
-
-## 🚀 Các Bước Deploy
-
-### **Bước 1: Sao Chép Project Lên Server**
-
-Chạy trên **máy local** của bạn (nơi có SSH key):
-```bash
-# Nếu có Git trên server
-ssh user@server_ip "cd /opt && git clone <repo_url> exam-app"
-
-# Hoặc upload zip/rsync
-rsync -avz /path/to/project/ user@server_ip:/opt/exam-app/
-```
-
-### **Bước 2: SSH Vào Server**
+Neu chua dung Git bao gio, mo terminal tai thu muc project va chay:
 
 ```bash
-ssh user@server_ip
-cd /opt/exam-app
+git init
+git add .
+git commit -m "Initial deploy version"
+git branch -M main
+git remote add origin https://github.com/<your-user>/<your-repo>.git
+git push -u origin main
 ```
 
-### **Bước 3: Tạo File `.env` Cho Backend**
+## 2. Tao database tren Supabase
 
-```bash
-# Từ file example
-cp backend/.env.example backend/.env
+1. Vao https://supabase.com
+2. Dang nhap hoac dang ky
+3. Bam `New project`
+4. Chon organization cua ban
+5. Dien:
+   - Project name: `exam-preparation`
+   - Database password: tao mat khau manh va luu lai
+   - Region: chon gan nguoi dung cua ban
+6. Bam `Create new project`
+7. Doi Supabase tao project xong
 
-# Chỉnh sửa biến môi trường (nếu cần thay đổi)
-nano backend/.env
+Lay connection string:
+
+1. Trong Supabase project, vao `Project Settings`
+2. Vao `Database`
+3. Tim phan `Connection string`
+4. Chon kieu `URI`
+5. Copy chuoi PostgreSQL
+6. Neu chuoi co `[YOUR-PASSWORD]`, thay bang database password ban da tao
+
+Vi du:
+
+```text
+postgresql://postgres.xxxxx:YOUR_PASSWORD@aws-0-region.pooler.supabase.com:6543/postgres
 ```
 
-Nội dung `backend/.env` (có thể giữ mặc định hoặc thay đổi):
+## 3. Deploy backend len Render
+
+1. Vao https://render.com
+2. Dang nhap bang GitHub
+3. Bam `New`
+4. Chon `Web Service`
+5. Chon repository GitHub cua project
+6. Cau hinh:
+   - Name: `exam-prep-backend`
+   - Root Directory: `backend`
+   - Runtime: `Node`
+   - Build Command: `npm ci`
+   - Start Command: `npm start`
+   - Instance Type: `Free`
+
+7. Trong phan `Environment Variables`, them:
+
 ```env
-DB_HOST=postgres
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=exam_preparation
-PORT=5000
+NODE_ENV=production
+DATABASE_URL=<connection_string_supabase>
+DB_SSL=true
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
 ```
 
-**⚠️ Chú ý:**
-- Đổi `DB_PASSWORD` thành mật khẩu mạnh trên production.
-- Nếu máy local đã cấu hình `.env` khác, hãy sao chép nội dung nó sang server.
+Neu ban co Gemini API key thi dien vao `GEMINI_API_KEY`; neu khong co thi de trong.
 
-### **Bước 4: Build Docker Images**
+8. Bam `Create Web Service`
+9. Doi Render build va start xong
+
+Kiem tra backend:
+
+1. Mo URL backend Render, vi du:
+
+```text
+https://exam-prep-backend.onrender.com/health
+```
+
+2. Neu thay:
+
+```json
+{"status":"Backend running"}
+```
+
+la backend da chay.
+
+Backend se tu dong tao bang database khi khoi dong.
+
+## 4. Deploy frontend len Render
+
+1. Vao Render Dashboard
+2. Bam `New`
+3. Chon `Static Site`
+4. Chon cung repository GitHub
+5. Cau hinh:
+   - Name: `exam-prep-frontend`
+   - Root Directory: `frontend`
+   - Build Command: `npm ci && npm run build`
+   - Publish Directory: `build`
+
+6. Trong `Environment Variables`, them:
+
+```env
+REACT_APP_API_URL=https://exam-prep-backend.onrender.com/api
+```
+
+Thay `https://exam-prep-backend.onrender.com` bang URL backend Render that cua ban.
+
+7. Bam `Create Static Site`
+8. Doi Render build xong
+
+Sau khi xong, Render se cho URL frontend, vi du:
+
+```text
+https://exam-prep-frontend.onrender.com
+```
+
+Day la link gui cho nguoi dung.
+
+## 5. Kiem tra app sau deploy
+
+Mo frontend URL:
+
+```text
+https://exam-prep-frontend.onrender.com
+```
+
+Kiem tra:
+- Dang ky tai khoan moi
+- Dang nhap
+- Upload file de thi
+- Luu dap an
+- Lam bai thi
+- Xem lich su thi
+- Xoa lich su thi
+
+Neu loi upload hoac loi database:
+
+1. Vao Render Dashboard
+2. Mo service `exam-prep-backend`
+3. Vao tab `Logs`
+4. Doc loi moi nhat
+
+## 6. Cap nhat code sau nay
+
+Moi lan ban sua code:
 
 ```bash
-# Xây dựng tất cả images (lần đầu sẽ mất ~5-10 phút)
-docker-compose build
-
-# Hoặc build riêng từng service
-docker-compose build backend
-docker-compose build frontend
+git add .
+git commit -m "Update app"
+git push
 ```
 
-**✅ Thành công nếu không có lỗi.**
+Render se tu dong build lai backend/frontend neu Auto Deploy dang bat.
 
-### **Bước 5: Khởi Chạy Containers**
+Neu Render khong tu build:
 
-```bash
-# Chạy ở background
-docker-compose up -d
+1. Vao Render Dashboard
+2. Chon service
+3. Bam `Manual Deploy`
+4. Chon `Deploy latest commit`
 
-# Hoặc chạy ở foreground để xem logs real-time (Ctrl+C để dừng)
-docker-compose up
+## 7. Loi thuong gap
+
+### Frontend bao loi khong ket noi server
+
+Kiem tra bien moi truong frontend:
+
+```env
+REACT_APP_API_URL=https://exam-prep-backend.onrender.com/api
 ```
 
-### **Bước 6: Kiểm Tra Trạng Thái**
+Sau khi sua bien moi truong, bam `Manual Deploy` frontend lai.
 
-```bash
-# Xem danh sách containers
-docker-compose ps
+### Backend loi database
 
-# Kết quả mong muốn:
-# NAME                STATUS           PORTS
-# exam-prep-db        Up (healthy)     0.0.0.0:5432->5432
-# exam-prep-backend   Up               0.0.0.0:5000->5000
-# exam-prep-frontend  Up               0.0.0.0:80->80
+Kiem tra bien:
+
+```env
+DATABASE_URL=<connection_string_supabase>
+DB_SSL=true
 ```
 
-### **Bước 7: Kiểm Tra Health Check**
+Dam bao da thay `[YOUR-PASSWORD]` bang password that cua Supabase database.
 
-```bash
-# Test backend API
-curl http://localhost:5000/health
+### Lan dau truy cap cham
 
-# Kết quả mong muốn:
-# {"status":"Backend running"}
+Day la han che cua Render Free. Service co the sleep khi khong co traffic.
 
-# Test frontend (mở trong trình duyệt hoặc curl)
-curl http://localhost
+### File upload mat sau khi deploy/restart
 
-# Hoặc từ máy local:
-curl http://<server_ip>
-```
+Day la han che cua free hosting khi luu file tren filesystem. De production nghiem tuc, nen chuyen file upload sang Supabase Storage, S3, Cloudinary, hoac dich vu storage tuong tu.
 
----
+## 8. Checklist
 
-## 🛠️ Các Lệnh Hữu Ích
-
-### **Xem Logs**
-```bash
-# Logs backend
-docker-compose logs backend --tail=100 -f
-
-# Logs database
-docker-compose logs postgres --tail=50
-
-# Logs frontend
-docker-compose logs frontend --tail=50
-
-# Logs tất cả services
-docker-compose logs -f
-```
-
-### **Dừng Services**
-```bash
-# Dừng tất cả containers (giữ data)
-docker-compose stop
-
-# Dừng và xóa containers (giữ images)
-docker-compose down
-
-# Dừng và xóa tất cả (xóa data, images)
-docker-compose down -v
-```
-
-### **Khởi Động Lại**
-```bash
-# Restart một service
-docker-compose restart backend
-
-# Restart tất cả
-docker-compose restart
-```
-
----
-
-## 🔄 Rollback (Quay Lại Phiên Bản Cũ)
-
-Nếu deployment thất bại hoặc có lỗi:
-
-### **Cách 1: Dừng Containers Hiện Tại**
-```bash
-# Dừng tất cả services
-docker-compose down
-
-# Xóa images để rebuild lại từ đầu nếu cần
-docker-compose rm -f
-```
-
-### **Cách 2: Quay Lại Commit Git Trước Đó**
-```bash
-# Xem commit history
-git log --oneline
-
-# Quay lại commit cũ
-git checkout <commit_id>
-
-# Rebuild và chạy lại
-docker-compose build
-docker-compose up -d
-```
-
-### **Cách 3: Backup Toàn Bộ PostgreSQL**
-```bash
-# Backup database
-docker-compose exec postgres pg_dump -U postgres exam_preparation > backup.sql
-
-# Restore từ backup
-docker-compose exec -T postgres psql -U postgres exam_preparation < backup.sql
-```
-
----
-
-## ⚠️ Troubleshooting
-
-### **Lỗi: Port 5000 đã được sử dụng**
-```bash
-# Tìm process chiếm port
-lsof -i :5000
-
-# Kill process (thay PID bằng số thực tế)
-kill -9 <PID>
-
-# Hoặc thay đổi port trong docker-compose.yml
-# ports: 
-#   - "8000:5000"  # map sang port 8000
-```
-
-### **Lỗi: Cannot connect to Docker daemon**
-```bash
-# Kiểm tra Docker service
-sudo systemctl status docker
-
-# Khởi động Docker nếu chưa chạy
-sudo systemctl start docker
-
-# Thêm user vào docker group (không cần sudo)
-sudo usermod -aG docker $USER
-newgrp docker
-```
-
-### **Frontend không load đúng**
-```bash
-# Xem logs frontend
-docker-compose logs frontend
-
-# Kiểm tra nginx config
-docker-compose exec frontend cat /etc/nginx/conf.d/default.conf
-
-# Restart frontend
-docker-compose restart frontend
-```
-
-### **Backend không kết nối Database**
-```bash
-# Kiểm tra logs backend
-docker-compose logs backend
-
-# Kiểm tra database đã sẵn sàng
-docker-compose exec postgres pg_isready -U postgres
-
-# Restart backend
-docker-compose restart backend
-```
-
----
-
-## 🔒 Bảo Mật (Production)
-
-### **Thay Đổi Database Password**
-```bash
-# Cập nhật trong docker-compose.yml
-# environment:
-#   POSTGRES_PASSWORD: <your_strong_password>
-
-# Và backend/.env
-# DB_PASSWORD=<your_strong_password>
-
-docker-compose down
-docker-compose up -d
-```
-
-### **Giới Hạn Port Công Khai**
-```bash
-# Chỉ cho phép backend port từ localhost (sử dụng Nginx reverse proxy)
-# ports:
-#   - "127.0.0.1:5000:5000"  # chỉ localhost
-```
-
-### **Sử Dụng SSL/TLS (HTTPS)**
-```bash
-# Cài Let's Encrypt Certbot
-sudo apt-get install certbot python3-certbot-nginx
-
-# Tạo certificate
-sudo certbot certonly --standalone -d yourdomain.com
-
-# Cập nhật Nginx config với certificate path
-```
-
----
-
-## 📝 Maintenance
-
-### **Cập Nhật Code (sau git pull)**
-```bash
-# Pull code mới
-git pull origin main
-
-# Rebuild images (nếu có thay đổi dependencies)
-docker-compose build
-
-# Restart containers
-docker-compose down
-docker-compose up -d
-```
-
-### **Dọn Dẹp Docker**
-```bash
-# Xóa unused images
-docker image prune -a
-
-# Xóa unused volumes
-docker volume prune
-
-# Xóa unused networks
-docker network prune
-```
-
-### **Cron Job Backup Daily**
-```bash
-# Thêm vào crontab (crontab -e)
-0 2 * * * cd /opt/exam-app && docker-compose exec -T postgres pg_dump -U postgres exam_preparation > backups/backup_$(date +\%Y\%m\%d).sql
-```
-
----
-
-## ✅ Checklist Deploy
-
-- [ ] Docker & Docker Compose đã cài
-- [ ] Project đã clone/upload lên server
-- [ ] File `.env` đã tạo và cấu hình
-- [ ] `docker-compose build` thành công
-- [ ] `docker-compose up -d` chạy không lỗi
-- [ ] `docker-compose ps` shows 3 containers UP
-- [ ] `curl http://localhost:5000/health` trả về status 200
-- [ ] Frontend load được tại `http://<server_ip>`
-- [ ] Database health check pass
-
----
-
-## 📞 Support
-
-Nếu gặp lỗi:
-1. Xem logs: `docker-compose logs -f`
-2. Kiểm tra `.env` file
-3. Restart containers: `docker-compose restart`
-4. Nếu vẫn lỗi, rollback theo hướng dẫn **Rollback** ở trên.
-
-**Chúc mừng! 🎉 Deploy thành công!**
+- [ ] Code da len GitHub
+- [ ] Supabase project da tao
+- [ ] Da copy `DATABASE_URL`
+- [ ] Backend Render da chay
+- [ ] `https://backend-url/health` tra ve OK
+- [ ] Frontend Render da build xong
+- [ ] Frontend co `REACT_APP_API_URL=https://backend-url/api`
+- [ ] Dang ky/dang nhap duoc
+- [ ] Upload de thi duoc
+- [ ] Lam bai va xem lich su duoc

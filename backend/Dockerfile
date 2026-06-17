@@ -9,10 +9,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libvips-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm ci --only=production
 
-COPY . .
+COPY backend/. .
+COPY database/schema.sql ./database/schema.sql
 
 RUN mkdir -p uploads
 
